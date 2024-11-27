@@ -6,6 +6,8 @@ https://github.com/yKesamaru/FACE01_DEV
 
 ![](https://raw.githubusercontent.com/yKesamaru/Clean_Up_the_Dockerfiles/refs/heads/master/assets/screenshot.png)
 
+動画元：[アベプラ](https://www.youtube.com/watch?v=f6gcs8KcQTA)
+
 環境構築をしないでも使えるようにDockerイメージを[DockerHub](https://hub.docker.com/u/tokaikaoninsho)に用意しています。
 
 さてバージョンが上がるたびにDockerイメージを作り直すのですが、自動化しているスクリプトやDockerfileの運用実績はあるものの非効率なコードなため、タイミング的にちょうどよいと思いリファクタリングすることになりました。
@@ -315,7 +317,7 @@ Dockerfile作成の最初期はなるべくレイヤーを分割し、様子を�
 
 この段階では各命令を整理しレイヤー数を削減する修正を行いました。
 
-`dlib`のビルドに必要なファイルのため、`Dockerfile_gpu`では`devパッケージ`を採用し、反対に`dlib`を`pip`からインストールする`Dockerfile_no_gpu`では`devパッケージ`を削除しました。
+`dlib`のビルドに必要なファイルのため、`devパッケージ`を採用しました。
 
 またユーザー権限設定の整理と不要な`sudo`の使用を削除しました。
 
