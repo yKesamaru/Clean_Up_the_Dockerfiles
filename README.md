@@ -4,6 +4,8 @@
 
 https://github.com/yKesamaru/FACE01_DEV
 
+![](https://raw.githubusercontent.com/yKesamaru/Clean_Up_the_Dockerfiles/refs/heads/master/assets/screenshot.png)
+
 環境構築をしないでも使えるようにDockerイメージを[DockerHub](https://hub.docker.com/u/tokaikaoninsho)に用意しています。
 
 さてバージョンが上がるたびにDockerイメージを作り直すのですが、自動化しているスクリプトやDockerfileの運用実績はあるものの非効率なコードなため、タイミング的にちょうどよいと思いリファクタリングすることになりました。
@@ -21,7 +23,7 @@ Dockerfile: `FACE01_DEV/docker/face01_gpu`と`FACE01_DEV/docker/face01_no_gpu`
 
 対象となる読者はDockerfileのリファクタリングを考えてる方です。対象範囲がかなり狭いですが、よろしくおねがいします。
 
-![](assets/eye-catch.png)
+![](https://raw.githubusercontent.com/yKesamaru/Clean_Up_the_Dockerfiles/refs/heads/master/assets/eye-catch.png)
 
 ## 環境
 ```bash
