@@ -1,18 +1,59 @@
 ## はじめに
-2種類のDockerイメージ（`face01_gpu`と`face01_no_gpu`）を作成します。
-1. 2種類のイメージを作成し、Docker Hubへのプッシュを自動化するスクリプト
-2. 2種類のdockerfile
-それぞれをブラッシュアップします。
-具体的には、開発段階の、見通しが悪くて非効率なコードをリファクタリングします。
+
+拙作の[`FACE01`](https://github.com/yKesamaru/FACE01_DEV)は日本人専用顔学習モデルを備えたオープンソースの顔認証フレームワークです。
+
+https://github.com/yKesamaru/FACE01_DEV
+
+環境構築をしないでも使えるようにDockerイメージを[DockerHub](https://hub.docker.com/u/tokaikaoninsho)に用意しています。
+
+さてバージョンが上がるたびにDockerイメージを作り直すのですが、自動化しているスクリプトやDockerfileの運用実績はあるものの非効率なコードなため、タイミング的にちょうどよいと思いリファクタリングすることになりました。
+
+自動化スクリプト: `FACE01_DEV/make_DockerImages.sh`
+Dockerfile: `FACE01_DEV/docker/face01_gpu`と`FACE01_DEV/docker/face01_no_gpu`
+
+計3つのコードのリファクタリングを行います。
+
+`FACE01_DEV/docker/face01_gpu`はNVIDIA GPUを備えたPC用のイメージ、
+
+`FACE01_DEV/docker/face01_no_gpu`はCPUのみで動作するPC用のイメージです。
+
+さきほどブランチをマージしたので、簡単な説明をつけて共有をします。
+
+対象となる読者はDockerfileのリファクタリングを考えてる方です。対象範囲がかなり狭いですが、よろしくおねがいします。
 
 ![](assets/eye-catch.png)
 
+## 環境
+```bash
+$ inxi -SG --filter
+System:
+  Kernel: 6.8.0-49-generic x86_64 bits: 64 Desktop: GNOME 42.9
+    Distro: Ubuntu 22.04.5 LTS (Jammy Jellyfish)
+Graphics:
+  Device-1: NVIDIA TU116 [GeForce GTX 1660 Ti] driver: nvidia v: 555.42.06
+  Display: x11 server: X.Org v: 1.21.1.4 driver: X: loaded: nvidia
+    unloaded: fbdev,modesetting,nouveau,vesa gpu: nvidia
+    resolution: 2560x1440~60Hz
+  OpenGL: renderer: NVIDIA GeForce GTX 1660 Ti/PCIe/SSE2
+    v: 4.6.0 NVIDIA 555.42.06
+```
+
+## dlibのビルドをするかどうか
+`dlib`は`pip`でインストールした場合、うまくインストールできない場合があります。（原因は不明です）
+
+ビルドに必要なヘッダファイルやライブラリ（`Python.h` ヘッダーファイルなど）が余計に必要になるため、Dockerイメージを小さくシンプルにしたいならマルチステージビルドを検討したほうが良いです。
+
+ソースからビルドする場合、線形代数の計算に使用するBLASライブラリが不足すると`dlib`はビルトインのBLASライブラリを使用しようとします。組み込み版のBLASは最適化されておらず、計算速度が遅くなる可能性があるとのことです。
+
 ## 2種類のイメージを作成し、Docker Hubへのプッシュを自動化するスクリプト
+`FACE01_DEV/make_DockerImages.sh`
 
 自分用に用意してあるbash用のテンプレートを使った形ですが、変数の設定などひと塊にしたコードにします。
 
+結果的に`TAG=3.03.04`のように、修正箇所が一箇所になるので人為的ミスが減りそうです。
+
 ### Before
-```bash
+```bash: FACE01_DEV/make_DockerImages.sh
 #!/usr/bin/env bash
 set -Ceux -o pipefail
 IFS=$'\n\t'
@@ -63,7 +104,7 @@ my_command || my_error
 ```
 
 ### After
-```bash
+```bash: FACE01_DEV/make_DockerImages.sh
 #!/usr/bin/env bash
 
 : <<'DOCSTRING'
@@ -127,8 +168,14 @@ main
 ```
 
 ## 2種類のdockerfile
+`FACE01_DEV/make_DockerImages.sh`から呼び出される`dockerfile`は2種類存在します。
+1. `FACE01_DEV/docker/Dockerfile_gpu`: NVIDIA GPUを積んだPC用のDocker Imageを作るdockerfile
+2. `FACE01_DEV/docker/Dockerfile_no_gpu`: CPUのみで動作するPC用のDocker Imageを作るdockerfile
+
+それぞれ`dockerfile`の修正前・修正後を転載します。
+
 ### Before: Dockerfile_gpu
-```bash
+```bash: FACE01_DEV/docker/Dockerfile_gpu
 # -----------------------------------------------------------------
 # サマリー:
 # このDockerfileは、CUDA 11.0およびUbuntu 20.04をベースにしたface01_gpuイメージをビルドします。
@@ -194,7 +241,6 @@ RUN apt-get install -y gedit
 RUN apt-get install -y firefox
 RUN rm -rf /var/lib/apt/lists/*
 
-
 # add user
 ARG DOCKER_UID=1000
 ARG DOCKER_USER=docker
@@ -246,45 +292,58 @@ RUN echo ${DOCKER_PASSWORD} | sudo -S chown ${DOCKER_USER} /home/${DOCKER_USER}/
 # [Have you done sudo python3 setup.py install --clean yet?](https://github.com/davisking/dlib/issues/1686#issuecomment-471509357)
 ```
 
-RUNコマンドをまとめることでレイヤーの数を減らし、イメージサイズを削減しました。# Dockerfileでは、各`RUN`コマンドや他のコマンドが実行されるたびに、新しいレイヤーが作成されます。レイヤーが増えると、ビルド時のディスク使用量が増え、Dockerイメージのサイズが大きくなります。そのため、複数の`RUN`コマンドを一つにまとめることでレイヤーの数を減らし、結果としてイメージサイズを小さく保つことができます。また、これにより、イメージの作成と配布が効率化されます。
+### After: Dockerfile_gpu
+RUNコマンドをまとめることでレイヤーの数を減らしました。
 
-# ベストプラクティス改善点:
-# 1. `RUN`コマンドをまとめて一度に実行することでレイヤーを減らし、イメージサイズを削減。
-# 2. 不要なキャッシュファイルを削除してイメージの軽量化を行った。
-# 3. `--no-install-recommends`オプションを使って余分な依存関係のインストールを防止。
-# 4. ユーザー権限設定の整理と不要な`sudo`の使用を削減。
+RUNは減らせば減らすほどよい、というものではありません。
 
-# パッケージ変更リスト:
-# - libavcodec-dev -> libavcodec58
-# - libavformat-dev -> libavformat58
-# - libswscale-dev -> libswscale5
-# - libx11-dev -> libx11-6
-# - python3-dev -> python3
-# - liblapack-dev -> liblapack3
-# - libopenblas-dev -> libopenblas-base
-# - libxrender-dev -> libxrender1
+Dockerfileの各命令（RUN, COPY, ADDなど）は、実行されるたびに新しいレイヤーを作成します。1つのレイヤー内でインストールとキャッシュの削除を行えば削除されたキャッシュサイズ分だけ容量を削減できます。
 
-```bash: gpu
+基本的にインストールやコピーをしたらその容量分がレイヤーの容量となりますが、レイヤーは変更差分を記録する仕組みなので、あるレイヤーで生成されたファイルを次のレイヤーで削除しても、その削除は新しいレイヤーの差分として記録され、元のレイヤーのデータは残ります。
+
+つまり同じレイヤーで削除をしない限りレイヤーごとの容量は変わりません。
+
+Dockerはレイヤー単位でキャッシュを管理します。レイヤーが多いとキャッシュチェックや再利用に時間がかかりますが、レイヤーを減らせばその負担が軽減され、ビルドにかかる時間の短縮に繋がります。
+
+逆に過度にレイヤーを削減すると可読性が落ちます。それどころかレイヤーを減らしすぎると、特定の箇所だけを修正した場合でも全体を再ビルドする必要が出てくることがあります（キャッシュが有効活用できない）。またエラーが起きた場合、特定が難しくなります。
+
+Dockerfile作成の最初期はなるべくレイヤーを分割し、様子を見ます。Dockerfileに問題がないようならレイヤー数を減らす方向で修正をし、ビルド時間の短縮やイメージ容量の削減を図ります。
+
+最終的にイメージ容量を気にするならマルチステージビルドを検討すべきです。
+
+この段階では各命令を整理しレイヤー数を削減する修正を行いました。
+
+`dlib`のビルドに必要なファイルのため、`Dockerfile_gpu`では`devパッケージ`を採用し、反対に`dlib`を`pip`からインストールする`Dockerfile_no_gpu`では`devパッケージ`を削除しました。
+
+またユーザー権限設定の整理と不要な`sudo`の使用を削除しました。
+
+```bash: FACE01_DEV/docker/Dockerfile_gpu
 # ベースイメージの選択
 FROM nvidia/cuda:11.6.1-runtime-ubuntu20.04
 LABEL maintainer="y.kesamaru@tokai-kaoninsho.com"
 
 # 環境変数の設定
+## USE_GPU: Docker_INSTALL_FACE01.shで使用
 ENV DEBIAN_FRONTEND=noninteractive \
     LANG=ja_JP.UTF-8 \
     TZ=Asia/Tokyo \
+    USE_GPU=1 \
     USER_HOME=/home/docker
 
 # 必要なパッケージのインストールとロケール設定
 RUN apt-get update && apt-get install -y \
-    # CUDA関連
-    libcudnn8 \
-    # 線形代数関連
-    liblapack3 \
-    libopenblas-base \
     # dlib build
     build-essential \
     cmake \
+    python3-dev \
+    libopenblas-dev \
+    liblapack-dev \
+    libboost-all-dev \
+    libeigen3-dev \
+    libx11-dev \
+    pkg-config \
+    libcudnn8 \
+    libcudnn8-dev \
     # 必要なツール
     wget \
     sudo \
@@ -293,9 +352,8 @@ RUN apt-get update && apt-get install -y \
     vim \
     gedit \
     # Python関連
-    python3 \
     python3-tk \
-    python3-pkg-resources \
+    python3-pip \
     python3-venv \
     # メディア関連
     ffmpeg \
@@ -329,17 +387,23 @@ USER ${DOCKER_USER}
 WORKDIR ${USER_HOME}/FACE01_DEV
 
 # 必要なフォルダとファイルをコピー
-COPY face01lib output noFace pyproject.toml requirements_dev.txt config.ini \
-     example assets preset_face_images \
-     ${USER_HOME}/FACE01_DEV/
+COPY --chown=docker:docker face01lib /home/docker/FACE01_DEV/face01lib
+COPY --chown=docker:docker output /home/docker/FACE01_DEV/output
+COPY --chown=docker:docker noFace /home/docker/FACE01_DEV/noFace
+COPY --chown=docker:docker multipleFaces /home/docker/FACE01_DEV/multipleFaces
+COPY --chown=docker:docker example /home/docker/FACE01_DEV/example
+COPY --chown=docker:docker assets /home/docker/FACE01_DEV/assets
+COPY --chown=docker:docker preset_face_images /home/docker/FACE01_DEV/preset_face_images
+COPY --chown=docker:docker --chmod=0755 docker /home/docker/FACE01_DEV/docker
+COPY --chown=docker:docker pyproject.toml requirements_dev.txt config.ini dlib-19.24.tar.bz2 /home/docker/FACE01_DEV/
 
 # スクリプトのコピーと実行
-COPY --chmod=+x docker/Docker_INSTALL_FACE01.sh ${USER_HOME}/FACE01_DEV/
-RUN /bin/bash -c ${USER_HOME}/FACE01_DEV/Docker_INSTALL_FACE01.sh
+# COPY --chmod=0755 docker/Docker_INSTALL_FACE01.sh ${USER_HOME}/FACE01_DEV/
+RUN /bin/bash -c "${USER_HOME}/FACE01_DEV/docker/Docker_INSTALL_FACE01.sh"
 ```
 
-### before
-```bash
+### Before: Dockerfile_no_gpu
+```bash: FACE01_DEV/docker/Dockerfile_no_gpu
 FROM ubuntu:20.04
 LABEL maintainer="y.kesamaru@tokai-kaoninsho.com"
 
@@ -433,25 +497,39 @@ RUN echo ${DOCKER_PASSWORD} | sudo -S chown ${DOCKER_USER} /home/${DOCKER_USER}/
 # [Have you done sudo python3 setup.py install --clean yet?](https://github.com/davisking/dlib/issues/1686#issuecomment-471509357)
 ```
 
-### after
-```bash: cpu
+### After: Dockerfile_no_gpu
+
+変更点は`Dockerfile_gpu`と同様です。
+
+```bash: FACE01_DEV/docker/Dockerfile_no_gpu
 FROM ubuntu:20.04
 LABEL maintainer="y.kesamaru@tokai-kaoninsho.com"
 
 # 環境変数の設定
+## USE_GPU: Docker_INSTALL_FACE01.shで使用
 ENV DEBIAN_FRONTEND=noninteractive \
     LANG=ja_JP.UTF-8 \
     TZ=Asia/Tokyo \
+    USE_GPU=0 \
     USER_HOME=/home/docker
 
 # 必要なパッケージのインストールとロケール設定
 RUN apt-get update && apt-get install -y \
-    # 線形代数関連
-    liblapack3 \
-    libopenblas-base \
-    # dlib build
-    build-essential \
+    pkg-config \
     cmake \
+    build-essential \
+    python3-dev \
+    libboost-all-dev \
+    libopenblas-dev \
+    liblapack-dev \
+    libx11-dev \
+    libgtk-3-dev \
+    libjpeg-dev \
+    libpng-dev \
+    libtiff-dev \
+    libavcodec-dev \
+    libavformat-dev \
+    libswscale-dev \
     # 必要なツール
     wget \
     sudo \
@@ -460,15 +538,11 @@ RUN apt-get update && apt-get install -y \
     vim \
     gedit \
     # Python関連
-    python3 \
     python3-tk \
-    python3-pkg-resources \
+    python3-pip \
     python3-venv \
     # メディア関連
     ffmpeg \
-    libavcodec58 \
-    libavformat58 \
-    libswscale5 \
     # X11ライブラリ関連
     libx11-6 \
     libsm6 \
@@ -495,13 +569,26 @@ RUN useradd -m --uid ${DOCKER_UID} --home-dir ${USER_HOME} --groups sudo,video -
 USER ${DOCKER_USER}
 WORKDIR ${USER_HOME}/FACE01_DEV
 
-# 必要なファイルをコピー
-COPY face01lib output noFace pyproject.toml requirements_dev.txt config.ini \
-     example assets preset_face_images \
-     ${USER_HOME}/FACE01_DEV/
+# 必要なフォルダとファイルをコピー
+COPY --chown=docker:docker face01lib /home/docker/FACE01_DEV/face01lib
+COPY --chown=docker:docker output /home/docker/FACE01_DEV/output
+COPY --chown=docker:docker noFace /home/docker/FACE01_DEV/noFace
+COPY --chown=docker:docker multipleFaces /home/docker/FACE01_DEV/multipleFaces
+COPY --chown=docker:docker example /home/docker/FACE01_DEV/example
+COPY --chown=docker:docker assets /home/docker/FACE01_DEV/assets
+COPY --chown=docker:docker preset_face_images /home/docker/FACE01_DEV/preset_face_images
+COPY --chown=docker:docker --chmod=0755 docker /home/docker/FACE01_DEV/docker
+COPY --chown=docker:docker pyproject.toml requirements_dev.txt config.ini dlib-19.24.tar.bz2 /home/docker/FACE01_DEV/
 
 # スクリプトのコピーと実行
-COPY --chmod=+x docker/Docker_INSTALL_FACE01_CPU.sh ${USER_HOME}/FACE01_DEV/
-RUN /bin/bash -c ${USER_HOME}/FACE01_DEV/Docker_INSTALL_FACE01_CPU.sh
-
+# COPY --chmod=0755 docker/Docker_INSTALL_FACE01_CPU.sh ${USER_HOME}/FACE01_DEV/
+RUN /bin/bash -c "${USER_HOME}/FACE01_DEV/docker/Docker_INSTALL_FACE01_CPU.sh"
+RUN pip uninstall -y onnxruntime-gpu && pip install onnxruntime
 ```
+
+## さいごに
+結果的に作成されたコードは`v3.03.04`としてマージしました。成果物はDockerHubの[こちらのページ](https://hub.docker.com/u/tokaikaoninsho)にアップしてあります。
+
+今回のリファクタリングでバグを潰しイメージサイズも小さくなりました。
+
+以上です。ありがとうございました。
